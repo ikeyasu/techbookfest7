@@ -289,3 +289,59 @@ Expirience Replayでは、経験したことを保存していきます。これ
 上記のように、バッファーのサイズは100万になっている事が分かります。
 
 ## Target Network
+
+次にTarget Netoworkについて説明します。が、これは、あまり意識することのないChainerRLの内部実装なので、簡単に触れるだけにとどめます。
+この手法は、学習中のネットワークとは別に、誤差関数で利用するネットワークを用意し、誤差関数で利用するネットワークは、定期的に学習中のネットワークと同期するという手法です。
+これは、DQNでは、ネットワークの学習に、そのネットワークの出力を使う事になるので、学習が安定しないということがおこるためです。
+
+ChainerRLでは、chainerrl.agents.DQNクラスの中の、[sync_target_network()](https://github.com/chainer/chainerrl/blob/78b5e3c97f68f800057d60de361c6c220ba39bcf/chainerrl/agents/dqn.py#L221)で、その同期処理をみることができます。
+
+```
+    def sync_target_network(self):
+        """Synchronize target network with current network."""
+        if self.target_model is None:
+            self.target_model = copy.deepcopy(self.model)
+            call_orig = self.target_model.__call__
+
+            def call_test(self_, x):
+                with chainer.using_config('train', False):
+                    return call_orig(self_, x)
+
+            self.target_model.__call__ = call_test
+        else:
+            synchronize_parameters(
+                src=self.model,
+                dst=self.target_model,
+                method=self.target_update_method,
+                tau=self.soft_update_tau)
+```
+
+## Clip reward
+
+これはシンプルで、得られる報酬を-1, 0, 1に固定したというものです。atariのゲームでは得られるスコアが報酬となりますが、それだとゲームによって、報酬のスケールがことなり、ハイパーパラメーターチューニングをゲーム毎にやる必要が生じます。それを防ぐ為に、報酬を-1, 0, 1に固定しています。
+
+これは、ChainerRLのサンプルのtrain_dqn_ale.pyでは、`atari_wrappers.make_atari`の`clip_reward`の設定で見ることができます。
+
+```
+    def make_env(test):
+        # Use different random seeds for train and test envs
+        env_seed = test_seed if test else train_seed
+        env = atari_wrappers.wrap_deepmind(
+            atari_wrappers.make_atari(args.env, max_frames=args.max_frames),
+            episode_life=not test,
+            clip_rewards=not test)
+```
+
+## その他
+
+そろそろ手法が細かくなってきました。簡単に羅列します。
+
+Skip frameという手法が使われていますが、単にフレームをスキップするだけです。全てのフレームを学習してもほとんど変わらないためです。
+
+さらに手法の名前はないですが、その4フレーム内で各ピクセルでmaxを取っています。そもそも学習時はモノクロにして学習しているのですが、4フレームで一番明るい値を取るようにしているという事です。
+これは、Atariはゲームはとても古いので、1画面に出せるキャラクタが限られていて、フレームによっては表示されないキャラクタがいるためです。
+
+## train_dqn_ale.py を見てみよう
+
+ここまで読んだら、ChainerRLのAtariのDQNのサンプルの[examples/atari/train_dqn_ale.py](https://github.com/chainer/chainerrl/blob/master/examples/atari/train_dqn_ale.py)を上から下まで読んでみてください。アルゴリズムが分かると、ソースがみるみる分かるようになったと思います。
+ChainerRLはアルゴリズムの実装を肩代わりしてくれるため、とても簡単に使えますが、使いこなすには、そのアルゴリズムを知っておく必要があります。ぜひ、元論文のChainerRLのソースコードを見比べながら、各アルゴリズムの学習を楽しんでください。
